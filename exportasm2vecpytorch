@@ -1,0 +1,72 @@
+#Export assembly instructions for functions of a binary in asm2vec-pytorch format
+#@author oldmerkum
+#@category assembly
+#@keybinding
+#@menupath Tools.Misc.Export asm2vec-pytorch functions
+#@toolbar
+
+import os
+from collections import namedtuple
+from ghidra.program.model.block import BasicBlockModel
+
+def asm_from_basicblock(basicblock, utils):
+  inst_text = ""
+  insts = utils.code_manager.getInstructions(basicblock, True)
+  for inst in insts:
+    inst_text += ' ' + inst.toString() + '\n'
+  return inst_text
+
+def write_asm_file(function, utils, out_dir):
+  # function file header
+  asm_header = " .name " + function.name + '\n'
+  asm_header += " .offset " + function.entryPoint.toString() + '\n'
+  asm_header += " .file " + function.program.name + '\n'
+
+  # start getting function body, instructions and basic blocks
+  functions_body = ""
+  blocks = utils.code_block_model.getCodeBlocksContaining(function.getBody(), monitor)
+  # first basic block
+  function_body = asm_from_basicblock(blocks.next(), utils)
+
+  # continue if more blocks, adding the block name
+  if blocks.hasNext():
+    for block in blocks:
+       function_body += block.name + '\n'
+       function_body += asm_from_basicblock(block, utils)
+
+  # write the contents
+  asm_filename = out_dir + '/' + str(function.hashCode())
+  with open(asm_filename, "w") as asm_outfile:
+    asm_outfile.write(asm_header)
+    asm_outfile.write(function_body)
+
+# create dir if doesn't exist
+dir_prefix = os.getenv('HOME')+'/ghidra-asm-output/'
+out_dir = os.path.splitext(dir_prefix+currentProgram.name)[0]
+
+if not os.path.exists(out_dir):
+  os.makedirs(out_dir)
+
+# setup utils
+Utils = namedtuple(
+  'Utils',
+  ['addr_fact', 'fxn_manager', 'code_manager', 'code_block_model']
+)
+
+utils = Utils(
+  currentProgram.getAddressFactory(),
+  currentProgram.getFunctionManager(),
+  currentProgram.getCodeManager(),
+  BasicBlockModel(currentProgram)
+)
+
+# provide some feedback
+monitor.initialize(utils.fxn_manager.getFunctionCount())
+
+# create asm file for each function in binary
+for fxn in utils.fxn_manager.getFunctions(True):
+  monitor.setMessage("Working on function " + str(monitor.getProgress()) + " " + fxn.getName())
+  write_asm_file(fxn, utils, out_dir)
+
+  monitor.checkCanceled()
+  monitor.incrementProgress(1)
